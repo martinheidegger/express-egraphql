@@ -46,7 +46,8 @@ export type Request = {
  * Options can be provided as an Object, a Promise for an Object, or a Function
  * that returns an Object or a Promise for an Object.
  */
-export type Options = ((request: Request) => OptionsResult) | OptionsResult;
+export type Options = OptionsFetch | OptionsResult;
+export type OptionsFetch = (req: Request, res: Response) => OptionsResult;
 export type OptionsResult = OptionsData | Promise<OptionsData>;
 export type OptionsData = {
   /**
@@ -127,6 +128,25 @@ export type RequestInfo = {
 
 type Middleware = (request: Request, response: Response) => Promise<void>;
 
+function validateOptions(optionsData) {
+  // Assert that optionsData is in fact an Object.
+  if (!optionsData || typeof optionsData !== 'object') {
+    throw new Error(
+      'GraphQL middleware option function must return an options object ' +
+      'or a promise which will be resolved to an options object.'
+    );
+  }
+
+  // Assert that schema is required.
+  if (!optionsData.schema) {
+    throw new Error(
+      'GraphQL middleware options must contain a schema.'
+    );
+  }
+
+  return optionsData;
+}
+
 /**
  * Middleware for express; takes an options object or function as input to
  * configure behavior, and returns an express middleware.
@@ -135,6 +155,18 @@ module.exports = graphqlHTTP;
 function graphqlHTTP(options: Options): Middleware {
   if (!options) {
     throw new Error('GraphQL middleware requires options.');
+  }
+
+  let resolveOptions;
+  if (typeof options === 'function') {
+    const optionsFetch: OptionsFetch = options;
+    resolveOptions = (request: Request, response: Response) =>
+      new Promise(
+        resolve => resolve(optionsFetch(request, response))
+      ).then(validateOptions);
+  } else {
+    validateOptions(options);
+    resolveOptions = () => Promise.resolve(options);
   }
 
   return (request: Request, response: Response) => {
@@ -158,27 +190,7 @@ function graphqlHTTP(options: Options): Middleware {
     // the asynchronous process below.
 
     // Resolve the Options to get OptionsData.
-    return new Promise(resolve => {
-      resolve(
-        typeof options === 'function' ?
-          options(request, response) :
-          options
-      );
-    }).then(optionsData => {
-      // Assert that optionsData is in fact an Object.
-      if (!optionsData || typeof optionsData !== 'object') {
-        throw new Error(
-          'GraphQL middleware option function must return an options object ' +
-          'or a promise which will be resolved to an options object.'
-        );
-      }
-
-      // Assert that schema is required.
-      if (!optionsData.schema) {
-        throw new Error(
-          'GraphQL middleware options must contain a schema.'
-        );
-      }
+    return resolveOptions(request, response).then(optionsData => {
 
       // Collect information from the options data object.
       schema = optionsData.schema;
