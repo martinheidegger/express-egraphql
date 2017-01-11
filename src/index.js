@@ -128,6 +128,50 @@ export type RequestInfo = {
 
 type Middleware = (request: Request, response: Response) => Promise<void>;
 
+class GraphQLRawError {
+  status: number
+  errors: [any]
+  constructor(status: number, errors: [any]) {
+    this.status = status;
+    this.errors = errors;
+  }
+}
+
+function graphqlError(status, errors) {
+  return new GraphQLRawError(status, errors);
+}
+
+function execTemplate(schema, rootValue, context, extensionsInput) {
+  return (documentAST, variables, operationName) => {
+    let exec;
+    try {
+      exec = execute(
+        schema,
+        documentAST,
+        rootValue,
+        context,
+        variables,
+        operationName
+      );
+    } catch (contextError) {
+      return Promise.reject(graphqlError(400, [ contextError ]));
+    }
+    if (typeof extensionsInput === 'function') {
+      const extensionsFn = extensionsInput;
+      exec.then(result => Promise.resolve(extensionsFn({
+        document: documentAST,
+        variables,
+        operationName,
+        result
+      })).then(extensions => {
+        result.extensions = extensions;
+        return result;
+      }));
+    }
+    return exec;
+  };
+}
+
 function validateOptions(optionsData) {
   // Assert that optionsData is in fact an Object.
   if (!optionsData || typeof optionsData !== 'object') {
@@ -173,18 +217,16 @@ function graphqlHTTP(options: Options): Middleware {
     // Higher scoped variables are referred to at various stages in the
     // asynchronous state machine below.
     let schema;
-    let context;
-    let rootValue;
     let pretty;
     let graphiql;
     let formatErrorFn;
-    let extensionsFn;
     let showGraphiQL;
     let query;
     let documentAST;
     let variables;
     let operationName;
     let validationRules;
+    let exec;
 
     // Promises are used as a mechanism for capturing any thrown errors during
     // the asynchronous process below.
@@ -194,17 +236,21 @@ function graphqlHTTP(options: Options): Middleware {
 
       // Collect information from the options data object.
       schema = optionsData.schema;
-      context = optionsData.context || request;
-      rootValue = optionsData.rootValue;
       pretty = optionsData.pretty;
       graphiql = optionsData.graphiql;
       formatErrorFn = optionsData.formatError;
-      extensionsFn = optionsData.extensions;
 
       validationRules = specifiedRules;
       if (optionsData.validationRules) {
         validationRules = validationRules.concat(optionsData.validationRules);
       }
+
+      exec = execTemplate(
+        optionsData.schema,
+        optionsData.rootValue,
+        optionsData.context || request,
+        optionsData.extensions
+      );
 
       // GraphQL HTTP only supports GET and POST methods.
       if (request.method !== 'GET' && request.method !== 'POST') {
@@ -271,39 +317,12 @@ function graphqlHTTP(options: Options): Middleware {
           );
         }
       }
-      // Perform the execution, reporting any errors creating the context.
-      try {
-        return execute(
-          schema,
-          documentAST,
-          rootValue,
-          context,
-          variables,
-          operationName
-        );
-      } catch (contextError) {
-        // Return 400: Bad Request if any execution context errors exist.
-        response.statusCode = 400;
-        return { errors: [ contextError ] };
-      }
-    }).then(result => {
-      // Collect and apply any metadata extensions if a function was provided.
-      // http://facebook.github.io/graphql/#sec-Response-Format
-      if (result && extensionsFn) {
-        return Promise.resolve(extensionsFn({
-          document: documentAST,
-          variables,
-          operationName,
-          result
-        })).then(extensions => {
-          if (extensions && typeof extensions === 'object') {
-            (result: any).extensions = extensions;
-          }
-          return result;
-        });
-      }
-      return result;
+      return exec(documentAST, variables, operationName);
     }).catch(error => {
+      if (error instanceof GraphQLRawError) {
+        response.statusCode = error.status;
+        return { errors: error.errors };
+      }
       // If an error was caught, report the httpError status, or 500.
       response.statusCode = error.status || 500;
       return { errors: [ error ] };
