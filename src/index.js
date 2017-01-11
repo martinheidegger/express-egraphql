@@ -283,17 +283,13 @@ function graphqlHTTP(options: Options): Middleware {
       try {
         documentAST = parse(source);
       } catch (syntaxError) {
-        // Return 400: Bad Request if any syntax errors errors exist.
-        response.statusCode = 400;
-        return { errors: [ syntaxError ] };
+        return graphqlError(400, [ syntaxError ]);
       }
 
       // Validate AST, reporting any errors.
       const validationErrors = validate(schema, documentAST, validationRules);
       if (validationErrors.length > 0) {
-        // Return 400: Bad Request if any validation errors exist.
-        response.statusCode = 400;
-        return { errors: validationErrors };
+        return graphqlError(400, validationErrors);
       }
 
       // Only query operations are allowed on GET requests.
