@@ -341,25 +341,23 @@ module.exports.getGraphQLParams = getGraphQLParams;
 function getGraphQLParams(request: Request): Promise<GraphQLParams> {
   return parseRequest(request).then(bodyData => {
     const urlData = request.url && url.parse(request.url, true).query || {};
-    return parseGraphQLParams(urlData, bodyData);
+    return parseGraphQLParams(Object.assign(urlData, bodyData));
   });
 }
 
 /**
  * Helper function to get the GraphQL params from the request.
  */
-function parseGraphQLParams(
-  urlData: {[param: string]: mixed},
-  bodyData: {[param: string]: mixed}
-): GraphQLParams {
+module.exports.parseGraphQLParams = parseGraphQLParams;
+function parseGraphQLParams(data): GraphQLParams {
   // GraphQL Query string.
-  let query = urlData.query || bodyData.query;
+  let query = data.query;
   if (typeof query !== 'string') {
     query = null;
   }
 
   // Parse the variables if needed.
-  let variables = urlData.variables || bodyData.variables;
+  let variables = data.variables;
   if (typeof variables === 'string') {
     try {
       variables = JSON.parse(variables);
@@ -371,12 +369,12 @@ function parseGraphQLParams(
   }
 
   // Name of GraphQL operation to execute.
-  let operationName = urlData.operationName || bodyData.operationName;
+  let operationName = data.operationName;
   if (typeof operationName !== 'string') {
     operationName = null;
   }
 
-  const raw = urlData.raw !== undefined || bodyData.raw !== undefined;
+  const raw = data.raw !== undefined;
 
   return { query, variables, operationName, raw };
 }
