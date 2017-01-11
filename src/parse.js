@@ -13,7 +13,7 @@ import readBody from './readBody';
 import parsers from './parsers';
 
 import type { Request } from './index';
-import type { Payload } from './parsers';
+import type { Payload, Parser } from './parsers';
 
 export type Result = Promise<Payload>;
 
@@ -21,13 +21,7 @@ export type Result = Promise<Payload>;
  * Provided a "Request" provided by express or connect (typically a node style
  * HTTPClientRequest), Promise the body data contained.
  */
-export function parseBody(req: Request): Result {
-  const body = req.body;
-
-  // If express has already parsed a body as a keyed object, use it.
-  if (typeof body === 'object' && !(body instanceof Buffer)) {
-    return Promise.resolve((body: any));
-  }
+export function parseRequest(req: Request): Result {
 
   // Skip requests without content types.
   if (req.headers['content-type'] === undefined) {
@@ -39,19 +33,38 @@ export function parseBody(req: Request): Result {
   // Use the correct body parser based on Content-Type header.
   const parseFn = parsers[typeInfo.type];
 
+  const body = req.body;
+
   // If express has already parsed a body as a string, and the content-type
   // was application/graphql, parse the string body.
   if (typeof body === 'string' && typeInfo.type === 'application/graphql') {
     return Promise.resolve(parseFn(body));
   }
 
-  if (body || // Already parsed body we didn't recognise? Parse nothing.
-    !parseFn // If no Content-Type header matches, parse nothing.
-  ) {
+  const charset = (typeInfo.parameters.charset || 'utf-8').toLowerCase();
+
+  return parseBody(req, charset, parseFn);
+}
+
+export function parseBody(
+    req: Request, charset: string, parseFn: Parser
+  ): Result {
+  const body = req.body;
+
+  // If express has already parsed a body as a keyed object, use it.
+  if (typeof body === 'object' && !(body instanceof Buffer)) {
+    return Promise.resolve((body: any));
+  }
+
+  // If no Content-Type header matches, parse nothing.
+  if (!parseFn) {
     return Promise.resolve({});
   }
 
-  const charset = (typeInfo.parameters.charset || 'utf-8').toLowerCase();
+  // Already parsed body we didn't recognise? Parse nothing.
+  if (body) {
+    return Promise.resolve({});
+  }
 
   return readBody(req, charset).then(parseFn);
 }

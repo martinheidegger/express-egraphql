@@ -21,7 +21,7 @@ import {
 import httpError from 'http-errors';
 import url from 'url';
 
-import { parseBody } from './parseBody';
+import { parseRequest } from './parse';
 import { renderGraphiQL } from './renderGraphiQL';
 
 import type {
@@ -339,7 +339,7 @@ export type GraphQLParams = {
  */
 module.exports.getGraphQLParams = getGraphQLParams;
 function getGraphQLParams(request: Request): Promise<GraphQLParams> {
-  return parseBody(request).then(bodyData => {
+  return parseRequest(request).then(bodyData => {
     const urlData = request.url && url.parse(request.url, true).query || {};
     return parseGraphQLParams(urlData, bodyData);
   });

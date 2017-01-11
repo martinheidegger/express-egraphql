@@ -23,7 +23,7 @@ function decompressed(req, encoding) {
 }
 
 // Read and parse a request body.
-export default function (req: Request, charset: String): Promise<string> {
+export default function (req: Request, charset: string): Promise<string> {
   return new Promise((resolve, reject) => {
     // Assert charset encoding per JSON RFC 7159 sec 8.1
     if (charset.slice(0, 4) !== 'utf-') {
