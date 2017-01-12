@@ -141,6 +141,27 @@ function graphqlError(status, errors) {
   return new GraphQLRawError(status, errors);
 }
 
+function parseQuery(query) {
+  // GraphQL source.
+  const source = new Source(query, 'GraphQL request');
+
+  // Parse source to AST, reporting any syntax error.
+  try {
+    return Promise.resolve(parse(source));
+  } catch (syntaxError) {
+    return Promise.reject(graphqlError(400, [ syntaxError ] ));
+  }
+}
+
+function getOperationType(documentAST, operationName) {
+  const operationAST = getOperationAST(documentAST, operationName);
+  if (!operationAST) {
+    // No operation is basically same as a 'query' operation for no content
+    return 'query';
+  }
+  return operationAST.operation;
+}
+
 function execTemplate(schema, rootValue, context, extensionsInput) {
   return (documentAST, variables, operationName) => {
     let exec;
@@ -222,7 +243,6 @@ function graphqlHTTP(options: Options): Middleware {
     let formatErrorFn;
     let showGraphiQL;
     let query;
-    let documentAST;
     let variables;
     let operationName;
     let validationRules;
@@ -276,44 +296,41 @@ function graphqlHTTP(options: Options): Middleware {
         throw httpError(400, 'Must provide query string.');
       }
 
-      // GraphQL source.
-      const source = new Source(query, 'GraphQL request');
+      return parseQuery(query)
+        .then(documentAST => {
+          // Validate AST, reporting any errors.
+          const validationErrors = validate(
+            schema, documentAST, validationRules
+          );
 
-      // Parse source to AST, reporting any syntax error.
-      try {
-        documentAST = parse(source);
-      } catch (syntaxError) {
-        return graphqlError(400, [ syntaxError ]);
-      }
-
-      // Validate AST, reporting any errors.
-      const validationErrors = validate(schema, documentAST, validationRules);
-      if (validationErrors.length > 0) {
-        return graphqlError(400, validationErrors);
-      }
-
-      // Only query operations are allowed on GET requests.
-      if (request.method === 'GET') {
-        // Determine if this GET request will perform a non-query.
-        const operationAST = getOperationAST(documentAST, operationName);
-        if (operationAST && operationAST.operation !== 'query') {
-          // If GraphiQL can be shown, do not perform this query, but
-          // provide it to GraphiQL so that the requester may perform it
-          // themselves if desired.
-          if (showGraphiQL) {
-            return null;
+          if (validationErrors.length > 0) {
+            throw graphqlError(400, validationErrors);
           }
 
-          // Otherwise, report a 405: Method Not Allowed error.
-          response.setHeader('Allow', 'POST');
-          throw httpError(
-            405,
-            `Can only perform a ${operationAST.operation} operation ` +
-            'from a POST request.'
-          );
-        }
-      }
-      return exec(documentAST, variables, operationName);
+          // Only query operations are allowed on GET requests.
+          if (request.method === 'GET') {
+            // Determine if this GET request will perform a non-query.
+            const operation = getOperationType(documentAST, operationName);
+            if (operation !== 'query') {
+              // If GraphiQL can be shown, do not perform this query, but
+              // provide it to GraphiQL so that the requester may perform it
+              // themselves if desired.
+              if (showGraphiQL) {
+                return null;
+              }
+
+              // Otherwise, report a 405: Method Not Allowed error.
+              response.setHeader('Allow', 'POST');
+              throw httpError(
+                405,
+                `Can only perform a ${operation} operation ` +
+                'from a POST request.'
+              );
+            }
+          }
+
+          return exec(documentAST, variables, operationName);
+        });
     }).catch(error => {
       if (error instanceof GraphQLRawError) {
         response.statusCode = error.status;
