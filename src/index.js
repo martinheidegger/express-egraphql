@@ -222,7 +222,6 @@ function graphqlHTTP(options: Options): Middleware {
     // Higher scoped variables are referred to at various stages in the
     // asynchronous state machine below.
     let pretty;
-    let graphiql;
     let formatErrorFn;
     let showGraphiQL;
     let query;
@@ -242,7 +241,6 @@ function graphqlHTTP(options: Options): Middleware {
 
       // Collect information from the options data object.
       pretty = optionsData.pretty;
-      graphiql = optionsData.graphiql;
       formatErrorFn = optionsData.formatError;
 
       // Parse the Request to get GraphQL request parameters.
@@ -251,7 +249,8 @@ function graphqlHTTP(options: Options): Middleware {
         query = params.query;
         variables = params.variables;
         operationName = params.operationName;
-        showGraphiQL = graphiql && canDisplayGraphiQL(request, params);
+        showGraphiQL = optionsData.graphiql &&
+          canDisplayGraphiQL(request, params);
 
         // If there is no query, but GraphiQL will be displayed, do not produce
         // a result, otherwise return a 400: Bad Request.
