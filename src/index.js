@@ -172,37 +172,6 @@ function getOperationType(documentAST, operationName) {
   return operationAST.operation;
 }
 
-function execTemplate(schema, rootValue, context, extensionsInput) {
-  return (documentAST, variables, operationName) => {
-    let exec;
-    try {
-      exec = execute(
-        schema,
-        documentAST,
-        rootValue,
-        context,
-        variables,
-        operationName
-      );
-    } catch (contextError) {
-      return Promise.reject(graphqlError(400, [ contextError ]));
-    }
-    if (typeof extensionsInput === 'function') {
-      const extensionsFn = extensionsInput;
-      exec.then(result => Promise.resolve(extensionsFn({
-        document: documentAST,
-        variables,
-        operationName,
-        result
-      })).then(extensions => {
-        result.extensions = extensions;
-        return result;
-      }));
-    }
-    return exec;
-  };
-}
-
 function validateOptions(optionsData) {
   // Assert that optionsData is in fact an Object.
   if (!optionsData || typeof optionsData !== 'object') {
@@ -362,6 +331,37 @@ function graphqlHTTP(options: Options): Middleware {
         sendResponse(response, payload);
       }
     });
+  };
+}
+module.exports.execTemplate = execTemplate;
+function execTemplate(schema, rootValue, context, extensionsInput) {
+  return (documentAST, variables, operationName) => {
+    let exec;
+    try {
+      exec = execute(
+        schema,
+        documentAST,
+        rootValue,
+        context,
+        variables,
+        operationName
+      );
+    } catch (contextError) {
+      return Promise.reject(graphqlError(400, [ contextError ]));
+    }
+    if (typeof extensionsInput === 'function') {
+      const extensionsFn = extensionsInput;
+      exec.then(result => Promise.resolve(extensionsFn({
+        document: documentAST,
+        variables,
+        operationName,
+        result
+      })).then(extensions => {
+        result.extensions = extensions;
+        return result;
+      }));
+    }
+    return exec;
   };
 }
 
