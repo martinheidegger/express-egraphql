@@ -202,21 +202,7 @@ function validateOptions(optionsData) {
  */
 module.exports = graphqlHTTP;
 function graphqlHTTP(options: Options): Middleware {
-  if (!options) {
-    throw new Error('GraphQL middleware requires options.');
-  }
-
-  let resolveOptions;
-  if (typeof options === 'function') {
-    const optionsFetch: OptionsFetch = options;
-    resolveOptions = (request: Request, response: Response) =>
-      new Promise(
-        resolve => resolve(optionsFetch(request, response))
-      ).then(validateOptions);
-  } else {
-    validateOptions(options);
-    resolveOptions = () => Promise.resolve(options);
-  }
+  const resolveOptions = createOptionResolver(options);
 
   return (request: Request, response: Response) => {
     // Higher scoped variables are used when finishing the request.
@@ -300,20 +286,9 @@ function graphqlHTTP(options: Options): Middleware {
           });
       });
     })
-    .catch(handleError.bind(null, response))
+    .catch(error => handleError(response, error))
+    .then(result => handleResult(formatErrorFn, response, result))
     .then(result => {
-      // If no data was included in the result, that indicates a runtime query
-      // error, indicate as such with a generic status code.
-      // Note: Information about the error itself will still be contained in
-      // the resulting JSON payload.
-      // http://facebook.github.io/graphql/#sec-Data
-      if (result && result.data === null) {
-        response.statusCode = 500;
-      }
-      // Format any encountered errors.
-      if (result && result.errors) {
-        (result: any).errors = result.errors.map(formatErrorFn || formatError);
-      }
       // If allowed to show GraphiQL, present it instead of JSON.
       if (showGraphiQL) {
         const payload = renderGraphiQL({
@@ -364,8 +339,42 @@ function exec(
   return executor;
 }
 
+module.exports.handleResult = handleResult;
+function handleResult(formatErrorFn, response, result) {
+  // If no data was included in the result, that indicates a runtime query
+  // error, indicate as such with a generic status code.
+  // Note: Information about the error itself will still be contained in
+  // the resulting JSON payload.
+  // http://facebook.github.io/graphql/#sec-Data
+  if (result && result.data === null) {
+    response.statusCode = 500;
+  }
+  // Format any encountered errors.
+  if (result && result.errors) {
+    (result: any).errors = result.errors.map(formatErrorFn || formatError);
+  }
+
+  return result;
+}
+
+module.exports.createOptionResolver = createOptionResolver;
+function createOptionResolver(options: Options) {
+  if (!options) {
+    throw new Error('GraphQL middleware requires options.');
+  }
+  if (typeof options === 'function') {
+    const optionsFetch: OptionsFetch = options;
+    return (request: Request, response: Response) =>
+      new Promise(
+        resolve => resolve(optionsFetch(request, response))
+      ).then(validateOptions);
+  }
+  validateOptions(options);
+  return () => Promise.resolve(options);
+}
+
 module.exports.handleError = handleError;
-function handleError(response, error) {
+function handleError(response: Response, error) {
   // If an error was caught, report the httpError status, or 500.
   response.statusCode = error.status || 500;
 
