@@ -221,7 +221,6 @@ function graphqlHTTP(options: Options): Middleware {
   return (request: Request, response: Response) => {
     // Higher scoped variables are referred to at various stages in the
     // asynchronous state machine below.
-    let schema;
     let pretty;
     let graphiql;
     let formatErrorFn;
@@ -242,7 +241,6 @@ function graphqlHTTP(options: Options): Middleware {
       }
 
       // Collect information from the options data object.
-      schema = optionsData.schema;
       pretty = optionsData.pretty;
       graphiql = optionsData.graphiql;
       formatErrorFn = optionsData.formatError;
@@ -264,8 +262,9 @@ function graphqlHTTP(options: Options): Middleware {
           throw httpError(400, 'Must provide query string.');
         }
 
-        return parseQuery(schema, query, optionsData.validationRules)
-          .then(documentAST => {
+        return parseQuery(optionsData.schema, query,
+            optionsData.validationRules
+          ).then(documentAST => {
 
             // Only query operations are allowed on GET requests.
             if (request.method === 'GET') {
