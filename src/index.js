@@ -332,15 +332,9 @@ function graphqlHTTP(options: Options): Middleware {
 
           return exec(documentAST, variables, operationName);
         });
-    }).catch(error => {
-      if (error instanceof GraphQLRawError) {
-        response.statusCode = error.status;
-        return { errors: error.errors };
-      }
-      // If an error was caught, report the httpError status, or 500.
-      response.statusCode = error.status || 500;
-      return { errors: [ error ] };
-    }).then(result => {
+    })
+    .catch(handleError.bind(null, response))
+    .then(result => {
       // If no data was included in the result, that indicates a runtime query
       // error, indicate as such with a generic status code.
       // Note: Information about the error itself will still be contained in
@@ -369,6 +363,17 @@ function graphqlHTTP(options: Options): Middleware {
       }
     });
   };
+}
+
+module.exports.handleError = handleError;
+function handleError(response, error) {
+  // If an error was caught, report the httpError status, or 500.
+  response.statusCode = error.status || 500;
+
+  if (error instanceof GraphQLRawError) {
+    return { errors: error.errors };
+  }
+  return { errors: [ error ] };
 }
 
 export type GraphQLParams = {
