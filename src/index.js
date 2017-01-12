@@ -253,6 +253,11 @@ function graphqlHTTP(options: Options): Middleware {
 
     // Resolve the Options to get OptionsData.
     return resolveOptions(request, response).then(optionsData => {
+      // GraphQL HTTP only supports GET and POST methods.
+      if (request.method !== 'GET' && request.method !== 'POST') {
+        response.setHeader('Allow', 'GET, POST');
+        throw httpError(405, 'GraphQL only supports GET and POST requests.');
+      }
 
       // Collect information from the options data object.
       schema = optionsData.schema;
@@ -271,12 +276,6 @@ function graphqlHTTP(options: Options): Middleware {
         optionsData.context || request,
         optionsData.extensions
       );
-
-      // GraphQL HTTP only supports GET and POST methods.
-      if (request.method !== 'GET' && request.method !== 'POST') {
-        response.setHeader('Allow', 'GET, POST');
-        throw httpError(405, 'GraphQL only supports GET and POST requests.');
-      }
 
       // Parse the Request to get GraphQL request parameters.
       return getGraphQLParams(request);
