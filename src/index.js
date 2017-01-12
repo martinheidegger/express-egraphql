@@ -225,7 +225,6 @@ function graphqlHTTP(options: Options): Middleware {
     let variables;
     let operationName;
     let validationRules;
-    let exec;
 
     // Promises are used as a mechanism for capturing any thrown errors during
     // the asynchronous process below.
@@ -249,58 +248,58 @@ function graphqlHTTP(options: Options): Middleware {
         validationRules = validationRules.concat(optionsData.validationRules);
       }
 
-      exec = execTemplate(
-        optionsData.schema,
-        optionsData.rootValue,
-        optionsData.context || request,
-        optionsData.extensions
-      );
-
       // Parse the Request to get GraphQL request parameters.
-      return getGraphQLParams(request);
-    }).then(params => {
-      // Get GraphQL params from the request and POST body data.
-      query = params.query;
-      variables = params.variables;
-      operationName = params.operationName;
-      showGraphiQL = graphiql && canDisplayGraphiQL(request, params);
+      return getGraphQLParams(request).then(params => {
+        // Get GraphQL params from the request and POST body data.
+        query = params.query;
+        variables = params.variables;
+        operationName = params.operationName;
+        showGraphiQL = graphiql && canDisplayGraphiQL(request, params);
 
-      // If there is no query, but GraphiQL will be displayed, do not produce
-      // a result, otherwise return a 400: Bad Request.
-      if (!query) {
-        if (showGraphiQL) {
-          return null;
-        }
-        throw httpError(400, 'Must provide query string.');
-      }
-
-      return parseQuery(schema, query, validationRules)
-        .then(documentAST => {
-
-          // Only query operations are allowed on GET requests.
-          if (request.method === 'GET') {
-            // Determine if this GET request will perform a non-query.
-            const operation = getOperationType(documentAST, operationName);
-            if (operation !== 'query') {
-              // If GraphiQL can be shown, do not perform this query, but
-              // provide it to GraphiQL so that the requester may perform it
-              // themselves if desired.
-              if (showGraphiQL) {
-                return null;
-              }
-
-              // Otherwise, report a 405: Method Not Allowed error.
-              response.setHeader('Allow', 'POST');
-              throw httpError(
-                405,
-                `Can only perform a ${operation} operation ` +
-                'from a POST request.'
-              );
-            }
+        // If there is no query, but GraphiQL will be displayed, do not produce
+        // a result, otherwise return a 400: Bad Request.
+        if (!query) {
+          if (showGraphiQL) {
+            return null;
           }
+          throw httpError(400, 'Must provide query string.');
+        }
 
-          return exec(documentAST, variables, operationName);
-        });
+        return parseQuery(schema, query, validationRules)
+          .then(documentAST => {
+
+            // Only query operations are allowed on GET requests.
+            if (request.method === 'GET') {
+              // Determine if this GET request will perform a non-query.
+              const operation = getOperationType(documentAST, operationName);
+              if (operation !== 'query') {
+                // If GraphiQL can be shown, do not perform this query, but
+                // provide it to GraphiQL so that the requester may perform it
+                // themselves if desired.
+                if (showGraphiQL) {
+                  return null;
+                }
+
+                // Otherwise, report a 405: Method Not Allowed error.
+                response.setHeader('Allow', 'POST');
+                throw httpError(
+                  405,
+                  `Can only perform a ${operation} operation ` +
+                  'from a POST request.'
+                );
+              }
+            }
+            return exec(
+              optionsData.schema,
+              optionsData.rootValue,
+              optionsData.context || request,
+              optionsData.extensions,
+              documentAST,
+              variables,
+              operationName
+            );
+          });
+      });
     })
     .catch(handleError.bind(null, response))
     .then(result => {
@@ -333,36 +332,37 @@ function graphqlHTTP(options: Options): Middleware {
     });
   };
 }
-module.exports.execTemplate = execTemplate;
-function execTemplate(schema, rootValue, context, extensionsInput) {
-  return (documentAST, variables, operationName) => {
-    let exec;
-    try {
-      exec = execute(
-        schema,
-        documentAST,
-        rootValue,
-        context,
-        variables,
-        operationName
-      );
-    } catch (contextError) {
-      return Promise.reject(graphqlError(400, [ contextError ]));
-    }
-    if (typeof extensionsInput === 'function') {
-      const extensionsFn = extensionsInput;
-      exec.then(result => Promise.resolve(extensionsFn({
-        document: documentAST,
-        variables,
-        operationName,
-        result
-      })).then(extensions => {
-        result.extensions = extensions;
-        return result;
-      }));
-    }
-    return exec;
-  };
+module.exports.exec = exec;
+function exec(
+  schema, rootValue, context, extensionsInput,
+  documentAST, variables, operationName
+) {
+  let executor;
+  try {
+    executor = execute(
+      schema,
+      documentAST,
+      rootValue,
+      context,
+      variables,
+      operationName
+    );
+  } catch (contextError) {
+    return Promise.reject(graphqlError(400, [ contextError ]));
+  }
+  if (typeof extensionsInput === 'function') {
+    const extensionsFn = extensionsInput;
+    executor.then(result => Promise.resolve(extensionsFn({
+      document: documentAST,
+      variables,
+      operationName,
+      result
+    })).then(extensions => {
+      result.extensions = extensions;
+      return result;
+    }));
+  }
+  return executor;
 }
 
 module.exports.handleError = handleError;
