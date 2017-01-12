@@ -219,19 +219,21 @@ function graphqlHTTP(options: Options): Middleware {
   }
 
   return (request: Request, response: Response) => {
-    // Higher scoped variables are referred to at various stages in the
-    // asynchronous state machine below.
-    let pretty;
+    // Higher scoped variables are used when finishing the request.
+
+    // These options can be overwritten but need to be set to default
+    // values in case resolving the options
+    let pretty = false;
     let formatErrorFn;
-    let showGraphiQL;
+    let showGraphiQL = false;
+
+    // The input will be used to render showGraphiQl if given.
     let query;
     let variables;
     let operationName;
 
     // Promises are used as a mechanism for capturing any thrown errors during
     // the asynchronous process below.
-
-    // Resolve the Options to get OptionsData.
     return resolveOptions(request, response).then(optionsData => {
       // GraphQL HTTP only supports GET and POST methods.
       if (request.method !== 'GET' && request.method !== 'POST') {
