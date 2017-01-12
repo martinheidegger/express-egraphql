@@ -141,16 +141,26 @@ function graphqlError(status, errors) {
   return new GraphQLRawError(status, errors);
 }
 
-function parseQuery(query) {
+function parseQuery(schema, query, validationRules) {
   // GraphQL source.
   const source = new Source(query, 'GraphQL request');
 
   // Parse source to AST, reporting any syntax error.
+  let documentAST;
   try {
-    return Promise.resolve(parse(source));
+    documentAST = parse(source);
   } catch (syntaxError) {
     return Promise.reject(graphqlError(400, [ syntaxError ] ));
   }
+
+  // Validate AST, reporting any errors.
+  const validationErrors = validate(schema, documentAST, validationRules);
+
+  if (validationErrors.length > 0) {
+    return Promise.reject(graphqlError(400, validationErrors));
+  }
+
+  return Promise.resolve(documentAST);
 }
 
 function getOperationType(documentAST, operationName) {
@@ -295,16 +305,8 @@ function graphqlHTTP(options: Options): Middleware {
         throw httpError(400, 'Must provide query string.');
       }
 
-      return parseQuery(query)
+      return parseQuery(schema, query, validationRules)
         .then(documentAST => {
-          // Validate AST, reporting any errors.
-          const validationErrors = validate(
-            schema, documentAST, validationRules
-          );
-
-          if (validationErrors.length > 0) {
-            throw graphqlError(400, validationErrors);
-          }
 
           // Only query operations are allowed on GET requests.
           if (request.method === 'GET') {
