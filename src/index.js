@@ -153,8 +153,13 @@ function parseQuery(schema, query, validationRules) {
     return Promise.reject(graphqlError(400, [ syntaxError ] ));
   }
 
+  let allValidationRules = specifiedRules;
+  if (validationRules) {
+    allValidationRules = allValidationRules.concat(validationRules);
+  }
+
   // Validate AST, reporting any errors.
-  const validationErrors = validate(schema, documentAST, validationRules);
+  const validationErrors = validate(schema, documentAST, allValidationRules);
 
   if (validationErrors.length > 0) {
     return Promise.reject(graphqlError(400, validationErrors));
@@ -224,7 +229,6 @@ function graphqlHTTP(options: Options): Middleware {
     let query;
     let variables;
     let operationName;
-    let validationRules;
 
     // Promises are used as a mechanism for capturing any thrown errors during
     // the asynchronous process below.
@@ -243,11 +247,6 @@ function graphqlHTTP(options: Options): Middleware {
       graphiql = optionsData.graphiql;
       formatErrorFn = optionsData.formatError;
 
-      validationRules = specifiedRules;
-      if (optionsData.validationRules) {
-        validationRules = validationRules.concat(optionsData.validationRules);
-      }
-
       // Parse the Request to get GraphQL request parameters.
       return getGraphQLParams(request).then(params => {
         // Get GraphQL params from the request and POST body data.
@@ -265,7 +264,7 @@ function graphqlHTTP(options: Options): Middleware {
           throw httpError(400, 'Must provide query string.');
         }
 
-        return parseQuery(schema, query, validationRules)
+        return parseQuery(schema, query, optionsData.validationRules)
           .then(documentAST => {
 
             // Only query operations are allowed on GET requests.
