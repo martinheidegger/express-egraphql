@@ -8,7 +8,6 @@
  *  of patent rights can be found in the PATENTS file in the same directory.
  */
 
-import accepts from 'accepts';
 import {
   execute
 } from 'graphql';
@@ -17,7 +16,12 @@ import url from 'url';
 
 import { parseRequest, parseQuery, getOperationType } from './parse';
 import { renderGraphiQL } from './renderGraphiQL';
-import { handleResult, handleError, graphqlError } from './handler';
+import {
+  handleResult,
+  handleError,
+  graphqlError,
+  canDisplayGraphiQL
+} from './handler';
 
 import type {
   DocumentNode,
@@ -353,19 +357,6 @@ function parseGraphQLParams(data): GraphQLParams {
   const raw = data.raw !== undefined;
 
   return { query, variables, operationName, raw };
-}
-
-/**
- * Helper function to determine if GraphiQL can be displayed.
- */
-function canDisplayGraphiQL(
-  request: Request,
-  params: GraphQLParams
-): boolean {
-  // If `raw` exists, GraphiQL mode is not enabled.
-  // Allowed to show GraphiQL if not requested as raw and this request
-  // prefers HTML over JSON.
-  return !params.raw && accepts(request).types([ 'json', 'html' ]) === 'html';
 }
 
 /**

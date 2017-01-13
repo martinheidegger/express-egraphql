@@ -1,5 +1,6 @@
 import type { Response } from 'express';
 import { formatError } from 'graphql';
+import accepts from 'accepts';
 
 export class GraphQLRawError {
   status: number
@@ -9,6 +10,21 @@ export class GraphQLRawError {
     this.errors = errors;
   }
 }
+
+
+/**
+ * Helper function to determine if GraphiQL can be displayed.
+ */
+export function canDisplayGraphiQL(
+  request: Request,
+  params: GraphQLParams
+): boolean {
+  // If `raw` exists, GraphiQL mode is not enabled.
+  // Allowed to show GraphiQL if not requested as raw and this request
+  // prefers HTML over JSON.
+  return !params.raw && accepts(request).types([ 'json', 'html' ]) === 'html';
+}
+
 
 export function handleResult(formatErrorFn: ?(any) => string,
                              response: Response, result: any) {
