@@ -9,6 +9,7 @@
  */
 
 import contentType from 'content-type';
+import httpError from 'http-errors';
 import readBody from './readBody';
 import parsers from './parsers';
 import {
@@ -20,7 +21,7 @@ import {
 } from 'graphql';
 import { graphqlError } from './handler';
 
-import type { Request } from './index';
+import type { Request, GraphQLParams } from './index';
 import type { Payload, Parser } from './parsers';
 import type { GraphQLSchema, DocumentNode } from 'graphql';
 
@@ -109,6 +110,39 @@ export function parseBody(
   }
 
   return readBody(req, charset).then(parseFn);
+}
+
+/**
+ * Helper function to get the GraphQL params from the request.
+ */
+export function parseGraphQLParams(data: any): GraphQLParams {
+  // GraphQL Query string.
+  let query = data.query;
+  if (typeof query !== 'string') {
+    query = null;
+  }
+
+  // Parse the variables if needed.
+  let variables = data.variables;
+  if (typeof variables === 'string') {
+    try {
+      variables = JSON.parse(variables);
+    } catch (error) {
+      throw httpError(400, 'Variables are invalid JSON.');
+    }
+  } else if (typeof variables !== 'object') {
+    variables = null;
+  }
+
+  // Name of GraphQL operation to execute.
+  let operationName = data.operationName;
+  if (typeof operationName !== 'string') {
+    operationName = null;
+  }
+
+  const raw = data.raw !== undefined;
+
+  return { query, variables, operationName, raw };
 }
 
 export function getOperationType(documentAST: DocumentNode,

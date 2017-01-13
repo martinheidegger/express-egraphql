@@ -14,7 +14,12 @@ import {
 import httpError from 'http-errors';
 import url from 'url';
 
-import { parseRequest, parseQuery, getOperationType } from './parse';
+import {
+  parseRequest,
+  parseQuery,
+  parseGraphQLParams,
+  getOperationType
+} from './parse';
 import { renderGraphiQL } from './renderGraphiQL';
 import {
   handleResult,
@@ -325,39 +330,7 @@ function getGraphQLParams(request: Request): Promise<GraphQLParams> {
   });
 }
 
-/**
- * Helper function to get the GraphQL params from the request.
- */
 module.exports.parseGraphQLParams = parseGraphQLParams;
-function parseGraphQLParams(data): GraphQLParams {
-  // GraphQL Query string.
-  let query = data.query;
-  if (typeof query !== 'string') {
-    query = null;
-  }
-
-  // Parse the variables if needed.
-  let variables = data.variables;
-  if (typeof variables === 'string') {
-    try {
-      variables = JSON.parse(variables);
-    } catch (error) {
-      throw httpError(400, 'Variables are invalid JSON.');
-    }
-  } else if (typeof variables !== 'object') {
-    variables = null;
-  }
-
-  // Name of GraphQL operation to execute.
-  let operationName = data.operationName;
-  if (typeof operationName !== 'string') {
-    operationName = null;
-  }
-
-  const raw = data.raw !== undefined;
-
-  return { query, variables, operationName, raw };
-}
 
 /**
  * Helper function for sending the response data. Use response.send it method
