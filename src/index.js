@@ -10,19 +10,16 @@
 
 import accepts from 'accepts';
 import {
-  Source,
-  parse,
-  validate,
   execute,
   formatError,
-  getOperationAST,
-  specifiedRules
+  getOperationAST
 } from 'graphql';
 import httpError from 'http-errors';
 import url from 'url';
 
-import { parseRequest } from './parse';
+import { parseRequest, parseQuery } from './parse';
 import { renderGraphiQL } from './renderGraphiQL';
+import { handleError, graphqlError } from './handler';
 
 import type {
   DocumentNode,
@@ -127,46 +124,6 @@ export type RequestInfo = {
 };
 
 type Middleware = (request: Request, response: Response) => Promise<void>;
-
-class GraphQLRawError {
-  status: number
-  errors: [any]
-  constructor(status: number, errors: [any]) {
-    this.status = status;
-    this.errors = errors;
-  }
-}
-
-function graphqlError(status, errors) {
-  return new GraphQLRawError(status, errors);
-}
-
-function parseQuery(schema, query, validationRules) {
-  // GraphQL source.
-  const source = new Source(query, 'GraphQL request');
-
-  // Parse source to AST, reporting any syntax error.
-  let documentAST;
-  try {
-    documentAST = parse(source);
-  } catch (syntaxError) {
-    return Promise.reject(graphqlError(400, [ syntaxError ] ));
-  }
-
-  let allValidationRules = specifiedRules;
-  if (validationRules) {
-    allValidationRules = allValidationRules.concat(validationRules);
-  }
-
-  // Validate AST, reporting any errors.
-  const validationErrors = validate(schema, documentAST, allValidationRules);
-
-  if (validationErrors.length > 0) {
-    return Promise.reject(graphqlError(400, validationErrors));
-  }
-
-  return Promise.resolve(documentAST);
-}
 
 function getOperationType(documentAST, operationName) {
   const operationAST = getOperationAST(documentAST, operationName);
@@ -358,7 +315,8 @@ function handleResult(formatErrorFn, response, result) {
 }
 
 module.exports.createOptionResolver = createOptionResolver;
-function createOptionResolver(options: Options) {
+function createOptionResolver(options: Options): (
+  request: Request, response: Response) => Promise<OptionsData> {
   if (!options) {
     throw new Error('GraphQL middleware requires options.');
   }
@@ -371,17 +329,6 @@ function createOptionResolver(options: Options) {
   }
   validateOptions(options);
   return () => Promise.resolve(options);
-}
-
-module.exports.handleError = handleError;
-function handleError(response: Response, error) {
-  // If an error was caught, report the httpError status, or 500.
-  response.statusCode = error.status || 500;
-
-  if (error instanceof GraphQLRawError) {
-    return { errors: error.errors };
-  }
-  return { errors: [ error ] };
 }
 
 export type GraphQLParams = {

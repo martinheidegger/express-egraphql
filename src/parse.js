@@ -11,9 +11,17 @@
 import contentType from 'content-type';
 import readBody from './readBody';
 import parsers from './parsers';
+import {
+  parse,
+  validate,
+  Source,
+  specifiedRules
+} from 'graphql';
+import { graphqlError } from './handler';
 
 import type { Request } from './index';
 import type { Payload, Parser } from './parsers';
+import type { GraphQLSchema, DocumentNode } from 'graphql';
 
 export type Result = Promise<Payload>;
 
@@ -44,6 +52,39 @@ export function parseRequest(req: Request): Result {
   const charset = (typeInfo.parameters.charset || 'utf-8').toLowerCase();
 
   return parseBody(req, charset, parseFn);
+}
+
+/**
+ * Parses a given query following a provided Schema definition. Can be extended
+ * by passing in optional validationRules.
+ */
+export function parseQuery(
+  schema: GraphQLSchema, query: string, validationRules: ?Array<mixed>
+): Promise<DocumentNode> {
+  // GraphQL source.
+  const source = new Source(query, 'GraphQL request');
+
+  // Parse source to AST, reporting any syntax error.
+  let documentAST;
+  try {
+    documentAST = parse(source);
+  } catch (syntaxError) {
+    return Promise.reject(graphqlError(400, [ syntaxError ] ));
+  }
+
+  let allValidationRules = specifiedRules;
+  if (validationRules) {
+    allValidationRules = allValidationRules.concat(validationRules);
+  }
+
+  // Validate AST, reporting any errors.
+  const validationErrors = validate(schema, documentAST, allValidationRules);
+
+  if (validationErrors.length > 0) {
+    return Promise.reject(graphqlError(400, validationErrors));
+  }
+
+  return Promise.resolve(documentAST);
 }
 
 export function parseBody(
