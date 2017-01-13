@@ -1,4 +1,5 @@
 import type { Response } from 'express';
+import { formatError } from 'graphql';
 
 export class GraphQLRawError {
   status: number
@@ -7,6 +8,24 @@ export class GraphQLRawError {
     this.status = status;
     this.errors = errors;
   }
+}
+
+export function handleResult(formatErrorFn: ?(any) => string,
+                             response: Response, result: any) {
+  // If no data was included in the result, that indicates a runtime query
+  // error, indicate as such with a generic status code.
+  // Note: Information about the error itself will still be contained in
+  // the resulting JSON payload.
+  // http://facebook.github.io/graphql/#sec-Data
+  if (result && result.data === null) {
+    response.statusCode = 500;
+  }
+  // Format any encountered errors.
+  if (result && result.errors) {
+    (result: any).errors = result.errors.map(formatErrorFn || formatError);
+  }
+
+  return result;
 }
 
 export function handleError(response: Response, error) {

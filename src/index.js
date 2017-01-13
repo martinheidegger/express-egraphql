@@ -10,15 +10,14 @@
 
 import accepts from 'accepts';
 import {
-  execute,
-  formatError
+  execute
 } from 'graphql';
 import httpError from 'http-errors';
 import url from 'url';
 
 import { parseRequest, parseQuery, getOperationType } from './parse';
 import { renderGraphiQL } from './renderGraphiQL';
-import { handleError, graphqlError } from './handler';
+import { handleResult, handleError, graphqlError } from './handler';
 
 import type {
   DocumentNode,
@@ -284,24 +283,6 @@ function exec(
     }));
   }
   return executor;
-}
-
-module.exports.handleResult = handleResult;
-function handleResult(formatErrorFn, response, result) {
-  // If no data was included in the result, that indicates a runtime query
-  // error, indicate as such with a generic status code.
-  // Note: Information about the error itself will still be contained in
-  // the resulting JSON payload.
-  // http://facebook.github.io/graphql/#sec-Data
-  if (result && result.data === null) {
-    response.statusCode = 500;
-  }
-  // Format any encountered errors.
-  if (result && result.errors) {
-    (result: any).errors = result.errors.map(formatErrorFn || formatError);
-  }
-
-  return result;
 }
 
 module.exports.createOptionResolver = createOptionResolver;
