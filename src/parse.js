@@ -15,6 +15,7 @@ import {
   parse,
   validate,
   Source,
+  getOperationAST,
   specifiedRules
 } from 'graphql';
 import { graphqlError } from './handler';
@@ -108,4 +109,14 @@ export function parseBody(
   }
 
   return readBody(req, charset).then(parseFn);
+}
+
+export function getOperationType(documentAST: DocumentNode,
+                                 operationName: ?string): string {
+  const operationAST = getOperationAST(documentAST, operationName);
+  if (!operationAST) {
+    // No operation is basically same as a 'query' operation for no content
+    return 'query';
+  }
+  return operationAST.operation;
 }

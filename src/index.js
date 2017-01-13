@@ -11,13 +11,12 @@
 import accepts from 'accepts';
 import {
   execute,
-  formatError,
-  getOperationAST
+  formatError
 } from 'graphql';
 import httpError from 'http-errors';
 import url from 'url';
 
-import { parseRequest, parseQuery } from './parse';
+import { parseRequest, parseQuery, getOperationType } from './parse';
 import { renderGraphiQL } from './renderGraphiQL';
 import { handleError, graphqlError } from './handler';
 
@@ -124,15 +123,6 @@ export type RequestInfo = {
 };
 
 type Middleware = (request: Request, response: Response) => Promise<void>;
-
-function getOperationType(documentAST, operationName) {
-  const operationAST = getOperationAST(documentAST, operationName);
-  if (!operationAST) {
-    // No operation is basically same as a 'query' operation for no content
-    return 'query';
-  }
-  return operationAST.operation;
-}
 
 function validateOptions(optionsData) {
   // Assert that optionsData is in fact an Object.
