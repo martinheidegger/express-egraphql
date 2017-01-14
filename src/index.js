@@ -8,9 +8,6 @@
  *  of patent rights can be found in the PATENTS file in the same directory.
  */
 
-import {
-  execute
-} from 'graphql';
 import httpError from 'http-errors';
 import url from 'url';
 
@@ -24,8 +21,8 @@ import { renderGraphiQL } from './renderGraphiQL';
 import {
   handleResult,
   handleError,
-  graphqlError,
-  canDisplayGraphiQL
+  canDisplayGraphiQL,
+  exec
 } from './handler';
 
 import type {
@@ -260,38 +257,6 @@ function graphqlHTTP(options: Options): Middleware {
       }
     });
   };
-}
-module.exports.exec = exec;
-function exec(
-  schema, rootValue, context, extensionsInput,
-  documentAST, variables, operationName
-) {
-  let executor;
-  try {
-    executor = execute(
-      schema,
-      documentAST,
-      rootValue,
-      context,
-      variables,
-      operationName
-    );
-  } catch (contextError) {
-    return Promise.reject(graphqlError(400, [ contextError ]));
-  }
-  if (typeof extensionsInput === 'function') {
-    const extensionsFn = extensionsInput;
-    executor.then(result => Promise.resolve(extensionsFn({
-      document: documentAST,
-      variables,
-      operationName,
-      result
-    })).then(extensions => {
-      result.extensions = extensions;
-      return result;
-    }));
-  }
-  return executor;
 }
 
 module.exports.createOptionResolver = createOptionResolver;

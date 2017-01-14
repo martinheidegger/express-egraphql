@@ -1,5 +1,5 @@
 import type { Response } from 'express';
-import { formatError } from 'graphql';
+import { formatError, execute } from 'graphql';
 import accepts from 'accepts';
 
 export class GraphQLRawError {
@@ -56,4 +56,41 @@ export function handleError(response: Response, error) {
 
 export function graphqlError(status, errors) {
   return new GraphQLRawError(status, errors);
+}
+
+export function exec(
+  schema: GraphQLSchema,
+  rootValue,
+  context,
+  extensionsInput,
+  documentAST,
+  variables,
+  operationName?: string
+): any {
+  let executor;
+  try {
+    executor = execute(
+      schema,
+      documentAST,
+      rootValue,
+      context,
+      variables,
+      operationName
+    );
+  } catch (contextError) {
+    return Promise.reject(graphqlError(400, [ contextError ]));
+  }
+  if (typeof extensionsInput === 'function') {
+    const extensionsFn = extensionsInput;
+    executor.then(result => Promise.resolve(extensionsFn({
+      document: documentAST,
+      variables,
+      operationName,
+      result
+    })).then(extensions => {
+      result.extensions = extensions;
+      return result;
+    }));
+  }
+  return executor;
 }
