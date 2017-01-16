@@ -197,7 +197,7 @@ function graphqlHTTP(options: Options): Middleware {
       return getGraphQLParams(
         request, response,
         optionsData.getPrivateKey,
-        optionsData.acceptedCipherAlgorithms || [ 'aes256', 'des' ]
+        optionsData.acceptedCipherAlgorithms || [ 'aes-256-ecb' ]
       ).then(params => {
         // Get GraphQL params from the request and POST body data.
         query = params.query;

@@ -1647,7 +1647,7 @@ describe('test harness', () => {
 
         const response = await request(app)
           .post('/graphql')
-          .set('x-cipher', 'aes256');
+          .set('x-cipher', 'aes-256-ecb');
 
         expect(response.status).to.equal(400);
         expect(JSON.parse(response.text)).to.deep.equal({
@@ -1674,7 +1674,7 @@ describe('test harness', () => {
         expect(JSON.parse(response.text)).to.deep.equal({
           errors: [
             { message: `"x-cipher" set to "funny" is not acceptable.
-Acceptable options are: aes256, des.` }
+Acceptable options are: aes-256-ecb.` }
           ]
         });
       });
@@ -1684,7 +1684,7 @@ Acceptable options are: aes256, des.` }
 
         app.use('/graphql', graphqlHTTP({
           schema: TestSchema,
-          acceptedCipherAlgorithms: [ 'aes' ],
+          acceptedCipherAlgorithms: [ 'aes', 'des' ],
           getPrivateKey: () => Promise.reject('simple error')
         }));
 
@@ -1697,7 +1697,7 @@ Acceptable options are: aes256, des.` }
         expect(JSON.parse(response.text)).to.deep.equal({
           errors: [
             { message: `"x-cipher" set to "funny" is not acceptable.
-Acceptable options are: aes.` }
+Acceptable options are: aes, des.` }
           ]
         });
       });
@@ -1713,7 +1713,7 @@ Acceptable options are: aes.` }
         const response = await request(app)
           .post('/graphql')
           .set('x-key-id', 'abcd')
-          .set('x-cipher', 'aes256');
+          .set('x-cipher', 'aes-256-ecb');
 
         expect(response.status).to.equal(401);
         expect(JSON.parse(response.text)).to.deep.equal({
@@ -1760,7 +1760,7 @@ Acceptable options are: aes.` }
       }
 
       describe('Properly encrypted requests', () => {
-        const cipherAlgorithm = 'aes256';
+        const cipherAlgorithm = 'aes-256-ecb';
         const privateKey = 'pass';
         const keyID = 'admin';
         const endPoint = graphqlHTTP({
