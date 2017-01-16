@@ -50,11 +50,7 @@ export default function (req: Request, charset: string): Promise<string> {
         );
       }
 
-      try {
-        return resolve(body);
-      } catch (error) {
-        return reject(error);
-      }
+      resolve(body);
     });
   });
 }

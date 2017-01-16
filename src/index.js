@@ -10,13 +10,18 @@
 
 import httpError from 'http-errors';
 import url from 'url';
+import { createCipher, createDecipher } from 'crypto';
 
 import {
   parseRequest,
+  parseBody,
   parseQuery,
   parseGraphQLParams,
   getOperationType
 } from './parse';
+import type {
+  Payload
+} from './parsers';
 import { renderGraphiQL } from './renderGraphiQL';
 import {
   handleResult,
@@ -49,6 +54,7 @@ export type Request = {
  */
 export type Options = OptionsFetch | OptionsResult;
 export type OptionsFetch = (req: Request, res: Response) => OptionsResult;
+export type PrivateKeyFetch = (keyID: string) => Promise<string>;
 export type OptionsResult = OptionsData | Promise<OptionsData>;
 export type OptionsData = {
   /**
@@ -100,6 +106,10 @@ export type OptionsData = {
    * A boolean to optionally enable GraphiQL mode.
    */
   graphiql?: ?boolean,
+
+  getPrivateKey?: PrivateKeyFetch;
+
+  acceptedCipherAlgorithms?: string[];
 };
 
 /**
@@ -184,7 +194,11 @@ function graphqlHTTP(options: Options): Middleware {
       formatErrorFn = optionsData.formatError;
 
       // Parse the Request to get GraphQL request parameters.
-      return getGraphQLParams(request).then(params => {
+      return getGraphQLParams(
+        request, response,
+        optionsData.getPrivateKey,
+        optionsData.acceptedCipherAlgorithms || [ 'aes256', 'des' ]
+      ).then(params => {
         // Get GraphQL params from the request and POST body data.
         query = params.query;
         variables = params.variables;
@@ -242,7 +256,16 @@ function graphqlHTTP(options: Options): Middleware {
     .then(result => handleResult(formatErrorFn, response, result))
     .then(result => {
       // If allowed to show GraphiQL, present it instead of JSON.
-      if (showGraphiQL) {
+      if (response.cipher) {
+        var data = {
+          t: Date.now(),
+          status: response.statusCode,
+          payload: result
+        };
+        response.statusCode = 200;
+        var res = response.cipher(data);
+        sendResponse(response, res);
+      } else if (showGraphiQL) {
         const payload = renderGraphiQL({
           query, variables,
           operationName, result
@@ -259,9 +282,11 @@ function graphqlHTTP(options: Options): Middleware {
   };
 }
 
+type OptionsResolver =
+  (request: Request, response: Response) => Promise<OptionsData>;
+
 module.exports.createOptionResolver = createOptionResolver;
-function createOptionResolver(options: Options): (
-  request: Request, response: Response) => Promise<OptionsData> {
+function createOptionResolver(options: Options): OptionsResolver {
   if (!options) {
     throw new Error('GraphQL middleware requires options.');
   }
@@ -288,7 +313,115 @@ export type GraphQLParams = {
  * HTTPClientRequest), Promise the GraphQL request parameters.
  */
 module.exports.getGraphQLParams = getGraphQLParams;
-function getGraphQLParams(request: Request): Promise<GraphQLParams> {
+function getGraphQLParams(request: Request, response: Reponse,
+  getPrivateKey?: PrivateKeyFetch, acceptedCipherAlgorithms: string[]
+): Promise<GraphQLParams> {
+  if (request.method === 'POST' && getPrivateKey) {
+    const cipherAlgorithm: mixed = request.headers['x-cipher'];
+    const keyID: mixed = request.headers['x-key-id'];
+
+    if (!keyID) {
+      if (!cipherAlgorithm) {
+        return getRegularGraphQLParams(request);
+      }
+      return Promise.reject(httpError(400,
+        'The header "x-cipher" requires the use of "x-key-id".'));
+    }
+    if (!cipherAlgorithm) {
+      return Promise.reject(httpError(400,
+        'The header "x-key-id" requires the use of "x-cipher".'));
+    }
+    return isEncryptedRequest(getPrivateKey, acceptedCipherAlgorithms,
+      String(cipherAlgorithm), String(keyID)).then(credentials => {
+        return parseBody(request, 'utf-8', credentials.decipher)
+          .then(data => {
+            response.cipher = credentials.cipher;
+            if (!data.payload) {
+              return Promise.reject(httpError(400, 'Payload missing'));
+            }
+            return parseGraphQLParams(data.payload);
+          })
+          .catch(e => {
+            if (e.statusCode === 401) {
+              return Promise.reject(e);
+            }
+            response.cipher = credentials.cipher;
+            return Promise.reject(e);
+          });
+      });
+  }
+  return getRegularGraphQLParams(request);
+}
+
+type CryptoHandler = {
+  cipher: (input: Payload) => string,
+  decipher: (encrypted: string) => any
+};
+
+function isEncryptedRequest(
+  getPrivateKey: PrivateKeyFetch,
+  acceptedCipherAlgorithms: string[],
+  cipherAlgorithm: string,
+  keyID: string
+): Promise<CryptoHandler> {
+  if (acceptedCipherAlgorithms.indexOf(cipherAlgorithm) === -1) {
+    return Promise.reject(httpError(400,
+      `"x-cipher" set to "${cipherAlgorithm}" is not acceptable.
+Acceptable options are: ${acceptedCipherAlgorithms.join(', ')}.`));
+  }
+  return getPrivateKey(keyID)
+    .catch(() => {
+      // should getPrivateKey fail for some reason its content could contain
+      // potentially reveal information about how getPrivateKey works. In order
+      // to cover that we just return with a delay.
+      return delayedReject();
+    })
+    .then(privateKey => {
+      if (!privateKey) {
+        return delayedReject();
+      }
+      return {
+        cipher(data) {
+          const c = createCipher(cipherAlgorithm, privateKey);
+          return Buffer.concat([
+            c.update(Buffer.from(JSON.stringify(data))),
+            c.final()
+          ]).toString('base64');
+        },
+        decipher(data) {
+          try {
+            const d = createDecipher(cipherAlgorithm, privateKey);
+            const str = Buffer.concat([
+              d.update(Buffer.from(data, 'base64')),
+              d.final()
+            ]).toString();
+            return Promise.resolve(JSON.parse(str));
+          } catch (e) {
+            // There is no simple way to figure out if the error occurs
+            // because of malformatted JSON content or wrong encryption
+            // so we need to go with authentication error since it is
+            // not good to inform a possible hacker that the JSON might
+            // be malformated (indicating that the user actually exists)
+            // Delaying response
+            return delayedReject();
+          }
+        }
+      };
+    });
+}
+
+function delayedReject() {
+  // In order for a possible attacker to not know
+  // if a request failed because the user exists
+  // or not we need to reject with a random delay
+  return new Promise( (_, reject) =>
+    setTimeout(() =>
+      reject(httpError(401, 'Authentication failed.'))
+    , Math.random() * 500)
+  );
+}
+
+function getRegularGraphQLParams(request: Request): Promise<GraphQLParams> {
   return parseRequest(request).then(bodyData => {
     const urlData = request.url && url.parse(request.url, true).query || {};
     return parseGraphQLParams(Object.assign(urlData, bodyData));

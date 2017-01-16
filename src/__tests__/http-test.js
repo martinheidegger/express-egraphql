@@ -32,6 +32,7 @@ import {
   BREAK
 } from 'graphql';
 import graphqlHTTP from '../';
+import { createCipher, createDecipher } from 'crypto';
 
 const QueryRootType = new GraphQLObjectType({
   name: 'QueryRoot',
@@ -1575,6 +1576,314 @@ describe('test harness', () => {
         expect(response.text).to.equal(
           '{"data":{"test":"Hello World"},"extensions":{"eventually":42}}'
         );
+      });
+    });
+
+    describe('Encryption support', () => {
+      it('not pass through getPrivateKey errors', async () => {
+        const app = server();
+
+        app.use('/graphql', graphqlHTTP({
+          schema: TestSchema,
+          getPrivateKey: () => Promise.reject('simple error')
+        }));
+
+        const response = await request(app)
+          .post('/graphql')
+          .set('x-key-id', 'abcd')
+          .set('x-cipher', 'aes256');
+
+        expect(response.status).to.equal(401);
+        expect(JSON.parse(response.text)).to.deep.equal({
+          errors: [
+            { message: 'Authentication failed.' }
+          ]
+        });
+      });
+
+      it('allows regular POST requests', async () => {
+        const app = server();
+
+        app.use(urlString(), graphqlHTTP({
+          schema: TestSchema,
+          getPrivateKey: () => Promise.reject('simple error')
+        }));
+
+        const response = await request(app)
+          .post(urlString()).send({ query: '{test}' });
+
+        expect(response.text).to.equal(
+          '{"data":{"test":"Hello World"}}'
+        );
+      });
+
+      it('reject when only one x-key-id is given', async () => {
+        const app = server();
+
+        app.use('/graphql', graphqlHTTP({
+          schema: TestSchema,
+          getPrivateKey: () => Promise.reject('simple error')
+        }));
+
+        const response = await request(app)
+          .post('/graphql')
+          .set('x-key-id', 'abcd');
+
+        expect(response.status).to.equal(400);
+        expect(JSON.parse(response.text)).to.deep.equal({
+          errors: [
+            { message: 'The header "x-key-id" requires the use of "x-cipher".' }
+          ]
+        });
+      });
+
+      it('reject when only one x-cipher is given', async () => {
+        const app = server();
+
+        app.use('/graphql', graphqlHTTP({
+          schema: TestSchema,
+          getPrivateKey: () => Promise.reject('simple error')
+        }));
+
+        const response = await request(app)
+          .post('/graphql')
+          .set('x-cipher', 'aes256');
+
+        expect(response.status).to.equal(400);
+        expect(JSON.parse(response.text)).to.deep.equal({
+          errors: [
+            { message: 'The header "x-cipher" requires the use of "x-key-id".' }
+          ]
+        });
+      });
+
+      it('disallow unsupported ciphers', async () => {
+        const app = server();
+
+        app.use('/graphql', graphqlHTTP({
+          schema: TestSchema,
+          getPrivateKey: () => Promise.reject('simple error')
+        }));
+
+        const response = await request(app)
+          .post('/graphql')
+          .set('x-key-id', 'abcd')
+          .set('x-cipher', 'funny');
+
+        expect(response.status).to.equal(400);
+        expect(JSON.parse(response.text)).to.deep.equal({
+          errors: [
+            { message: `"x-cipher" set to "funny" is not acceptable.
+Acceptable options are: aes256, des.` }
+          ]
+        });
+      });
+
+      it('allow changing the supported ciphers', async () => {
+        const app = server();
+
+        app.use('/graphql', graphqlHTTP({
+          schema: TestSchema,
+          acceptedCipherAlgorithms: [ 'aes' ],
+          getPrivateKey: () => Promise.reject('simple error')
+        }));
+
+        const response = await request(app)
+          .post('/graphql')
+          .set('x-key-id', 'abcd')
+          .set('x-cipher', 'funny');
+
+        expect(response.status).to.equal(400);
+        expect(JSON.parse(response.text)).to.deep.equal({
+          errors: [
+            { message: `"x-cipher" set to "funny" is not acceptable.
+Acceptable options are: aes.` }
+          ]
+        });
+      });
+
+      it('fail without a privateKey.', async () => {
+        const app = server();
+
+        app.use('/graphql', graphqlHTTP({
+          schema: TestSchema,
+          getPrivateKey: () => Promise.resolve(null)
+        }));
+
+        const response = await request(app)
+          .post('/graphql')
+          .set('x-key-id', 'abcd')
+          .set('x-cipher', 'aes256');
+
+        expect(response.status).to.equal(401);
+        expect(JSON.parse(response.text)).to.deep.equal({
+          errors: [
+            { message: 'Authentication failed.' }
+          ]
+        });
+      });
+
+      // The next test is slow, so lets run it only on one server, its basic
+      // functionality has been covered by other tests.
+      if (server === connect) {
+        it('fail with a random delay', async function () {
+          const requests = 15;
+          this.timeout(requests * 500);
+          const app = server();
+
+          app.use('/graphql', graphqlHTTP({
+            schema: TestSchema,
+            getPrivateKey: () => Promise.resolve(null)
+          }));
+
+          var durations = []
+          for (var i=0; i<requests; i++) {
+            var start = Date.now()
+            await request(app)
+              .post('/graphql')
+              .set('x-key-id', 'abcd')
+              .set('x-cipher', 'aes256');
+
+            durations.push(Date.now() - start);
+          }
+
+          var max = durations.reduce(
+            (former, then) => Math.max(former, then)
+            , 0);
+          var min = durations.reduce(
+            (former, then) => Math.min(former, then)
+            , Number.MAX_SAFE_INTEGER);
+
+          // Purposefully slow result
+          expect(max - min > 250).to.be.true;
+        });
+      }
+
+      describe('Properly encrypted requests', () => {
+        const cipherAlgorithm = 'aes256';
+        const privateKey = 'pass';
+        const keyID = 'admin';
+        const endPoint = graphqlHTTP({
+          schema: TestSchema,
+          getPrivateKey: (keyID) => {
+            expect(keyID).to.be.equal(keyID);
+            return Promise.resolve(privateKey);
+          }
+        });
+
+        const cipher = (data, key) => {
+          if (!key) {
+            key = privateKey;
+          }
+          const c = createCipher(cipherAlgorithm, key);
+          return Buffer.concat([
+            c.update(data),
+            c.final()
+          ]).toString('base64');
+        };
+
+        const decipher = (data) => {
+          const d = createDecipher(cipherAlgorithm, privateKey);
+          return Buffer.concat([
+            d.update(Buffer.from(data, 'base64')),
+            d.final()
+          ]).toString();
+        };
+
+        const app = server();
+
+        app.use('/graphql', endPoint);
+
+        const req = (data, key) =>
+          request(app)
+            .post('/graphql')
+            .set('x-key-id', keyID)
+            .set('x-cipher', cipherAlgorithm)
+            .send(data ? cipher(data, key) : null);
+
+        const compressedData = (data) => {
+          const result = JSON.parse(decipher(data));
+          expect(result.t).to.be.a('number');
+          delete result.t;
+          return result;
+        }
+
+        it('prevent successful login with an empty string', async () => {
+          const response = await req(null);
+          expect(JSON.parse(response.text)).to.deep.equal({
+            errors: [
+              { message: 'Authentication failed.' }
+            ]
+          });
+          expect(response.status).to.equal(401);
+        });
+
+        it('prevent successful login with an wrongly encrypted string', async () => {
+          const response = await req(JSON.stringify({
+            payload: {
+              query: '{test}'
+            }
+          }), 'xyz');
+          expect(JSON.parse(response.text)).to.deep.equal({
+            errors: [
+              { message: 'Authentication failed.' }
+            ]
+          });
+          expect(response.status).to.equal(401);
+        });
+
+        it('accept regular requests.', async () => {
+          const response = await req(JSON.stringify({
+            payload: {
+              query: '{test}'
+            }
+          }));
+
+          expect(compressedData(response.text)).to.deep
+            .equal({
+              status: 200,
+              payload: {
+                data: {
+                  test: 'Hello World'
+                }
+              }
+            });
+          expect(response.status).to.equal(200);
+        });
+
+        it('accept regular requests.', async () => {
+          const response = await req(JSON.stringify({
+            data: 'test'
+          }));
+
+          expect(compressedData(response.text)).to.deep
+            .equal({
+              status: 400,
+              payload: {
+                errors: [{
+                  message: 'Payload missing'
+                }]
+              }
+            });
+          expect(response.status).to.equal(200);
+        });
+
+        it('should properly pass through the encrypted errors.', async () => {
+          const response = await req(JSON.stringify({
+            payload: {}
+          }));
+
+          expect(compressedData(response.text)).to.deep
+            .equal({
+              status: 400,
+              payload: {
+                errors: [
+                  { message: 'Must provide query string.' }
+                ]
+              }
+            });
+          expect(response.status).to.equal(200);
+        });
       });
     });
   });
