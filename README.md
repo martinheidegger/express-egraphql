@@ -1,8 +1,11 @@
-GraphQL HTTP Server Middleware
+eGraphQL HTTP Server Middleware
 ==============================
 
-[![Build Status](https://travis-ci.org/graphql/express-graphql.svg?branch=master)](https://travis-ci.org/graphql/express-graphql)
-[![Coverage Status](https://coveralls.io/repos/graphql/express-graphql/badge.svg?branch=master&service=github)](https://coveralls.io/github/graphql/express-graphql?branch=master)
+[![Build Status](https://travis-ci.org/martinheidegger/express-egraphql.svg?branch=master)](https://travis-ci.org/martinheidegger/express-egraphql)
+[![Coverage Status](https://coveralls.io/repos/martinheidegger/express-egraphql/badge.svg?branch=master&service=github)](https://coveralls.io/github/martinheidegger/express-egraphql?branch=master)
+
+**This is a Fork of [express-graphql](https://github.com/graphql/express-graphql)
+with support for symmetric encryption.**
 
 Create a GraphQL HTTP server with any HTTP web framework that supports connect styled middleware, including [Connect](https://github.com/senchalabs/connect) itself and [Express](http://expressjs.com).
 
@@ -62,6 +65,14 @@ The `graphqlHTTP` function accepts the following options:
 
   * **`validationRules`**: Optional additional validation rules queries must
     satisfy in addition to those defined by the GraphQL spec.
+
+  * **`getPrivateKey`**: Optional handler that enables encrypted requests to the
+    endpoint. `getPrivateKey(keyID) { return Promise.resolve('privateKey')}`.
+    The method will be called once a request to encrypt arrives. The resulting
+    privateKey will be used to en-/decrypt the requests.
+
+  * **`acceptedCipherAlgorithms`**: By default, with encryption enabled, only
+    the `aes-256-ecb` algorithm encryption is allowed.
 
 
 ## HTTP Usage
