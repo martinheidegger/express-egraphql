@@ -1,4 +1,3 @@
-/* @flow */
 /**
  *  Fork Copyright (c) 2016, Martin Heidegger,
  *

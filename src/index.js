@@ -13,6 +13,7 @@
 import httpError from 'http-errors';
 import url from 'url';
 import { createCipher, createDecipher } from 'crypto';
+import toBuffer from './toBuffer.js';
 
 import {
   parseRequest,
@@ -383,7 +384,7 @@ function isEncryptedRequest(
         cipher(data) {
           const c = createCipher(cipherAlgorithm, privateKey);
           return Buffer.concat([
-            c.update(Buffer.from(JSON.stringify(data))),
+            c.update(toBuffer(JSON.stringify(data))),
             c.final()
           ]).toString('base64');
         },
@@ -391,7 +392,7 @@ function isEncryptedRequest(
           try {
             const d = createDecipher(cipherAlgorithm, privateKey);
             const str = Buffer.concat([
-              d.update(Buffer.from(data, 'base64')),
+              d.update(toBuffer(data, 'base64')),
               d.final()
             ]).toString();
             return Promise.resolve(JSON.parse(str));

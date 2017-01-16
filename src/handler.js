@@ -12,6 +12,8 @@
 
 import type { Response } from 'express';
 import { formatError, execute } from 'graphql';
+import type { GraphQLSchema, DocumentNode } from 'graphql';
+import type { Request, GraphQLParams, RequestInfo } from './index';
 import accepts from 'accepts';
 
 export class GraphQLRawError {
@@ -38,7 +40,7 @@ export function canDisplayGraphiQL(
 }
 
 
-export function handleResult(formatErrorFn: ?(any) => string,
+export function handleResult(formatErrorFn: ?(any) => mixed,
                              response: Response, result: any) {
   // If no data was included in the result, that indicates a runtime query
   // error, indicate as such with a generic status code.
@@ -56,7 +58,7 @@ export function handleResult(formatErrorFn: ?(any) => string,
   return result;
 }
 
-export function handleError(response: Response, error) {
+export function handleError(response: Response, error: any) {
   // If an error was caught, report the httpError status, or 500.
   response.statusCode = error.status || 500;
 
@@ -66,18 +68,18 @@ export function handleError(response: Response, error) {
   return { errors: [ error ] };
 }
 
-export function graphqlError(status, errors) {
+export function graphqlError(status: number, errors: string[]) {
   return new GraphQLRawError(status, errors);
 }
 
 export function exec(
   schema: GraphQLSchema,
-  rootValue,
-  context,
-  extensionsInput,
-  documentAST,
-  variables,
-  operationName?: string
+  rootValue: ?mixed,
+  context: any,
+  extensionsInput: ?(info: RequestInfo) => {[key: string]: mixed},
+  documentAST: DocumentNode,
+  variables: ?{[name: string]: mixed},
+  operationName: ?string
 ): any {
   let executor;
   try {

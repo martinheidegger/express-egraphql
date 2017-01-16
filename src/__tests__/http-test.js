@@ -1,4 +1,3 @@
-/* @flow */
 /**
  *  Fork Copyright (c) 2016, Martin Heidegger,
  *
@@ -35,6 +34,7 @@ import {
 } from 'graphql';
 import graphqlHTTP from '../';
 import { createCipher, createDecipher } from 'crypto';
+import toBuffer from '../toBuffer';
 
 const QueryRootType = new GraphQLObjectType({
   name: 'QueryRoot',
@@ -1780,7 +1780,7 @@ Acceptable options are: aes, des.` }
         const cipher = (data, key) => {
           const c = createCipher(cipherAlgorithm, key || privateKey);
           return Buffer.concat([
-            c.update(Buffer.from(data)),
+            c.update(toBuffer(data)),
             c.final()
           ]).toString('base64');
         };
@@ -1788,7 +1788,7 @@ Acceptable options are: aes, des.` }
         const decipher = data => {
           const d = createDecipher(cipherAlgorithm, privateKey);
           return Buffer.concat([
-            d.update(Buffer.from(data, 'base64')),
+            d.update(toBuffer(data, 'base64')),
             d.final()
           ]).toString();
         };
