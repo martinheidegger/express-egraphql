@@ -316,23 +316,12 @@ module.exports.getGraphQLParams = getGraphQLParams;
 function getGraphQLParams(request: Request, response: Reponse,
   getPrivateKey?: PrivateKeyFetch, acceptedCipherAlgorithms: string[]
 ): Promise<GraphQLParams> {
-  if (request.method === 'POST' && getPrivateKey) {
-    const cipherAlgorithm: mixed = request.headers['x-cipher'];
-    const keyID: mixed = request.headers['x-key-id'];
-
-    if (!keyID) {
-      if (!cipherAlgorithm) {
-        return getRegularGraphQLParams(request);
-      }
-      return Promise.reject(httpError(400,
-        'The header "x-cipher" requires the use of "x-key-id".'));
-    }
-    if (!cipherAlgorithm) {
-      return Promise.reject(httpError(400,
-        'The header "x-key-id" requires the use of "x-cipher".'));
-    }
+  const cipherAlgorithm: string = String(request.headers['x-cipher'] || '');
+  const keyID: string = String(request.headers['x-key-id'] || '');
+  if (request.method === 'POST' && getPrivateKey &&
+    (keyID || cipherAlgorithm)) {
     return isEncryptedRequest(getPrivateKey, acceptedCipherAlgorithms,
-      String(cipherAlgorithm), String(keyID)).then(credentials => {
+      cipherAlgorithm, keyID).then(credentials => {
         return parseBody(request, 'utf-8', credentials.decipher)
           .then(data => {
             response.cipher = credentials.cipher;
@@ -364,10 +353,19 @@ function isEncryptedRequest(
   cipherAlgorithm: string,
   keyID: string
 ): Promise<CryptoHandler> {
+  if (!keyID) {
+    return Promise.reject(httpError(400,
+      'The header "x-cipher" requires the use of "x-key-id".'));
+  }
+  if (!cipherAlgorithm) {
+    return Promise.reject(httpError(400,
+      'The header "x-key-id" requires the use of "x-cipher".'));
+  }
   if (acceptedCipherAlgorithms.indexOf(cipherAlgorithm) === -1) {
     return Promise.reject(httpError(400,
-      `"x-cipher" set to "${cipherAlgorithm}" is not acceptable.
-Acceptable options are: ${acceptedCipherAlgorithms.join(', ')}.`));
+      `"x-cipher" set to "${cipherAlgorithm}" is not acceptable.\n` +
+      `Acceptable options are: ${acceptedCipherAlgorithms.join(', ')}.`
+    ));
   }
   return getPrivateKey(keyID)
     .catch(() => {

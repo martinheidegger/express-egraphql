@@ -1579,8 +1579,8 @@ describe('test harness', () => {
       });
     });
 
-    describe('Encryption support', () => {
-      it('not pass through getPrivateKey errors', async () => {
+    describe('with symmetrical encryption', () => {
+      it('pass through getPrivateKey errors', async () => {
         const app = server();
 
         app.use('/graphql', graphqlHTTP({
@@ -1591,7 +1591,7 @@ describe('test harness', () => {
         const response = await request(app)
           .post('/graphql')
           .set('x-key-id', 'abcd')
-          .set('x-cipher', 'aes256');
+          .set('x-cipher', 'aes-256-ecb');
 
         expect(response.status).to.equal(401);
         expect(JSON.parse(response.text)).to.deep.equal({
@@ -1673,8 +1673,8 @@ describe('test harness', () => {
         expect(response.status).to.equal(400);
         expect(JSON.parse(response.text)).to.deep.equal({
           errors: [
-            { message: `"x-cipher" set to "funny" is not acceptable.
-Acceptable options are: aes-256-ecb.` }
+            { message: `"x-cipher" set to "funny" is not acceptable.\n` +
+              `Acceptable options are: aes-256-ecb.` }
           ]
         });
       });
@@ -1727,8 +1727,8 @@ Acceptable options are: aes, des.` }
       // functionality has been covered by other tests.
       if (server === connect) {
         it('fail with a random delay', async function () {
-          const requests = 15;
-          this.timeout(requests * 500);
+          const requests = 20;
+          this.timeout(requests * (100 + 500) * 1.2);
           const app = server();
 
           app.use('/graphql', graphqlHTTP({
@@ -1742,20 +1742,21 @@ Acceptable options are: aes, des.` }
             await request(app)
               .post('/graphql')
               .set('x-key-id', 'abcd')
-              .set('x-cipher', 'aes256');
+              .set('x-cipher', 'aes-256-ecb');
 
             durations.push(Date.now() - start);
           }
 
-          var max = durations.reduce(
+          const max = durations.reduce(
             (former, then) => Math.max(former, then)
             , 0);
-          var min = durations.reduce(
+          const min = durations.reduce(
             (former, then) => Math.min(former, then)
             , Number.MAX_SAFE_INTEGER);
 
           // Purposefully slow result
-          expect(max - min > 250).to.be.true;
+          expect(min).to.be.at.least(40);
+          expect(max - min).to.be.at.least(250);
         });
       }
 
