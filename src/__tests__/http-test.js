@@ -1673,8 +1673,8 @@ describe('test harness', () => {
         expect(response.status).to.equal(400);
         expect(JSON.parse(response.text)).to.deep.equal({
           errors: [
-            { message: `"x-cipher" set to "funny" is not acceptable.\n` +
-              `Acceptable options are: aes-256-ecb.` }
+            { message: '"x-cipher" set to "funny" is not acceptable.\n' +
+              'Acceptable options are: aes-256-ecb.' }
           ]
         });
       });
@@ -1707,7 +1707,7 @@ Acceptable options are: aes, des.` }
 
         app.use('/graphql', graphqlHTTP({
           schema: TestSchema,
-          getPrivateKey: () => Promise.resolve(null)
+          getPrivateKey: () => Promise.resolve('')
         }));
 
         const response = await request(app)
@@ -1727,25 +1727,28 @@ Acceptable options are: aes, des.` }
       // functionality has been covered by other tests.
       if (server === connect) {
         it('fail with a random delay', async function () {
-          const requests = 20;
-          this.timeout(requests * (100 + 500) * 1.2);
+          const count = 20;
+          this.timeout(count * (100 + 500) * 1.2);
           const app = server();
 
           app.use('/graphql', graphqlHTTP({
             schema: TestSchema,
-            getPrivateKey: () => Promise.resolve(null)
+            getPrivateKey: () => Promise.resolve('')
           }));
 
-          var durations = []
-          for (var i=0; i<requests; i++) {
-            var start = Date.now()
-            await request(app)
-              .post('/graphql')
-              .set('x-key-id', 'abcd')
-              .set('x-cipher', 'aes-256-ecb');
-
-            durations.push(Date.now() - start);
+          const requests = [];
+          for (let i = 0; i < count; i++) {
+            requests.push(new Promise(resolve => {
+              const start = Date.now();
+              resolve(request(app)
+                .post('/graphql')
+                .set('x-key-id', 'abcd')
+                .set('x-cipher', 'aes-256-ecb')
+                .then(() => Date.now() - start));
+            }));
           }
+
+          const durations = await Promise.all(requests);
 
           const max = durations.reduce(
             (former, then) => Math.max(former, then)
@@ -1766,24 +1769,21 @@ Acceptable options are: aes, des.` }
         const keyID = 'admin';
         const endPoint = graphqlHTTP({
           schema: TestSchema,
-          getPrivateKey: (keyID) => {
-            expect(keyID).to.be.equal(keyID);
+          getPrivateKey: resultKeyID => {
+            expect(resultKeyID).to.be.equal(keyID);
             return Promise.resolve(privateKey);
           }
         });
 
         const cipher = (data, key) => {
-          if (!key) {
-            key = privateKey;
-          }
-          const c = createCipher(cipherAlgorithm, key);
+          const c = createCipher(cipherAlgorithm, key || privateKey);
           return Buffer.concat([
-            c.update(data),
+            c.update(Buffer.from(data)),
             c.final()
           ]).toString('base64');
         };
 
-        const decipher = (data) => {
+        const decipher = data => {
           const d = createDecipher(cipherAlgorithm, privateKey);
           return Buffer.concat([
             d.update(Buffer.from(data, 'base64')),
@@ -1802,12 +1802,12 @@ Acceptable options are: aes, des.` }
             .set('x-cipher', cipherAlgorithm)
             .send(data ? cipher(data, key) : null);
 
-        const compressedData = (data) => {
+        const compressedData = data => {
           const result = JSON.parse(decipher(data));
           expect(result.t).to.be.a('number');
           delete result.t;
           return result;
-        }
+        };
 
         it('prevent successful login with an empty string', async () => {
           const response = await req(null);
@@ -1861,9 +1861,9 @@ Acceptable options are: aes, des.` }
             .equal({
               status: 400,
               payload: {
-                errors: [{
-                  message: 'Payload missing'
-                }]
+                errors: [
+                  { message: 'Payload missing' }
+                ]
               }
             });
           expect(response.status).to.equal(200);

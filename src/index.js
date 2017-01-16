@@ -257,14 +257,13 @@ function graphqlHTTP(options: Options): Middleware {
     .then(result => {
       // If allowed to show GraphiQL, present it instead of JSON.
       if (response.cipher) {
-        var data = {
+        const data = {
           t: Date.now(),
           status: response.statusCode,
           payload: result
         };
         response.statusCode = 200;
-        var res = response.cipher(data);
-        sendResponse(response, res);
+        sendResponse(response, response.cipher(data));
       } else if (showGraphiQL) {
         const payload = renderGraphiQL({
           query, variables,
@@ -313,7 +312,7 @@ export type GraphQLParams = {
  * HTTPClientRequest), Promise the GraphQL request parameters.
  */
 module.exports.getGraphQLParams = getGraphQLParams;
-function getGraphQLParams(request: Request, response: Reponse,
+function getGraphQLParams(request: Request, response: Response,
   getPrivateKey?: PrivateKeyFetch, acceptedCipherAlgorithms: string[]
 ): Promise<GraphQLParams> {
   const cipherAlgorithm: string = String(request.headers['x-cipher'] || '');
@@ -415,7 +414,7 @@ function delayedReject() {
   return new Promise( (_, reject) =>
     setTimeout(() =>
       reject(httpError(401, 'Authentication failed.'))
-    , Math.random() * 500)
+    , 50 + Math.random() * 500)
   );
 }
 
