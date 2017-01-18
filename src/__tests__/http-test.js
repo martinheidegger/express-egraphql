@@ -1681,7 +1681,7 @@ describe('test harness', () => {
         });
       });
 
-      it('allow changing the supported ciphers', async () => {
+      it('allow configuration of supported ciphers', async () => {
         const app = server();
 
         app.use('/graphql', graphqlHTTP({
