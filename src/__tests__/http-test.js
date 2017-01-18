@@ -13,7 +13,7 @@
 /* eslint-disable max-len */
 
 import { expect } from 'chai';
-import { describe, it } from 'mocha';
+import { describe, it, before, after, beforeEach } from 'mocha';
 import sinon from 'sinon';
 import { stringify } from 'querystring';
 import url from 'url';
@@ -21,6 +21,7 @@ import zlib from 'zlib';
 import multer from 'multer';
 import bodyParser from 'body-parser';
 import request from 'supertest';
+import egraphqlFetch from 'egraphql-fetch';
 import connect from 'connect';
 import express4 from 'express'; // modern
 import express3 from 'express3'; // old but commonly still used
@@ -33,8 +34,11 @@ import {
   BREAK
 } from 'graphql';
 import graphqlHTTP from '../';
-import { createCipher, createDecipher } from 'crypto';
+import { createCipher } from 'crypto';
 import toBuffer from '../toBuffer';
+
+const eGraphqlSessionMutation = graphqlHTTP.eGraphqlSessionMutation;
+const eGraphqlCreateSecret = graphqlHTTP.eGraphqlCreateSecret;
 
 const QueryRootType = new GraphQLObjectType({
   name: 'QueryRoot',
@@ -81,6 +85,17 @@ const TestSchema = new GraphQLSchema({
     }
   })
 });
+
+const createSessionSchema = createSession =>
+  new GraphQLSchema({
+    query: QueryRootType,
+    mutation: new GraphQLObjectType({
+      name: 'MutationRoot',
+      fields: {
+        eGraphQLSession: eGraphqlSessionMutation(createSession)
+      }
+    })
+  });
 
 function urlString(urlParams?: ?{[param: string]: mixed}) {
   let string = '/graphql';
@@ -1581,7 +1596,7 @@ describe('test harness', () => {
       });
     });
 
-    describe('with symmetrical encryption', () => {
+    describe('eGraphQL protocol', () => {
       it('pass through getPrivateKey errors', async () => {
         const app = server();
 
@@ -1659,7 +1674,7 @@ describe('test harness', () => {
         });
       });
 
-      it('disallow unsupported ciphers', async () => {
+      it('prevent unsupported ciphers', async () => {
         const app = server();
 
         app.use('/graphql', graphqlHTTP({
@@ -1681,7 +1696,7 @@ describe('test harness', () => {
         });
       });
 
-      it('allow configuration of supported ciphers', async () => {
+      it('allow specification of supported ciphers', async () => {
         const app = server();
 
         app.use('/graphql', graphqlHTTP({
@@ -1704,7 +1719,7 @@ Acceptable options are: aes, des.` }
         });
       });
 
-      it('fail without a privateKey.', async () => {
+      it('fail if privateKey is missing', async () => {
         const app = server();
 
         app.use('/graphql', graphqlHTTP({
@@ -1728,7 +1743,7 @@ Acceptable options are: aes, des.` }
       // The next test is slow, so lets run it only on one server, its basic
       // functionality has been covered by other tests.
       if (server === connect) {
-        it('fail with a random delay', async function () {
+        it('fails with a random delay', async function () {
           const count = 20;
           this.timeout(count * (100 + 500) * 1.2);
           const app = server();
@@ -1765,7 +1780,7 @@ Acceptable options are: aes, des.` }
         });
       }
 
-      describe('Properly encrypted requests', () => {
+      describe('Error Response with correct but invalid requests', () => {
         const cipherAlgorithm = 'aes-256-ecb';
         const privateKey = 'pass';
         const keyID = 'admin';
@@ -1785,14 +1800,6 @@ Acceptable options are: aes, des.` }
           ]).toString('base64');
         };
 
-        const decipher = data => {
-          const d = createDecipher(cipherAlgorithm, privateKey);
-          return Buffer.concat([
-            d.update(toBuffer(data, 'base64')),
-            d.final()
-          ]).toString();
-        };
-
         const app = server();
 
         app.use('/graphql', endPoint);
@@ -1803,13 +1810,6 @@ Acceptable options are: aes, des.` }
             .set('x-key-id', keyID)
             .set('x-cipher', cipherAlgorithm)
             .send(data ? cipher(data, key) : null);
-
-        const compressedData = data => {
-          const result = JSON.parse(decipher(data));
-          expect(result.t).to.be.a('number');
-          delete result.t;
-          return result;
-        };
 
         it('prevent successful login with an empty string', async () => {
           const response = await req(null);
@@ -1834,58 +1834,167 @@ Acceptable options are: aes, des.` }
           });
           expect(response.status).to.equal(401);
         });
+      });
 
-        it('accept regular requests.', async () => {
-          const response = await req(JSON.stringify({
-            payload: {
-              query: '{test}'
-            }
+      describe('Properly Encrypted Requests (without session)', () => {
+        const cipherAlgorithm = 'aes-256-ecb';
+        const privateKey = 'pass';
+        const keyID = 'admin';
+        const endPoint = graphqlHTTP({
+          schema: TestSchema,
+          getPrivateKey: resultKeyID => {
+            expect(resultKeyID).to.be.equal(keyID);
+            return Promise.resolve(privateKey);
+          }
+        });
+
+        let app;
+        let port;
+        let fetch;
+        let listener;
+
+        before(async () => {
+          app = server();
+          app.use('/graphql', endPoint);
+          port = await (new Promise(resolve => {
+            listener = app.listen(() => {
+              if (listener.address) {
+                return resolve(listener.address().port);
+              }
+              return resolve(app.address().port);
+            });
           }));
 
-          expect(compressedData(response.text)).to.deep
-            .equal({
-              status: 200,
-              payload: {
-                data: {
-                  test: 'Hello World'
-                }
-              }
-            });
-          expect(response.status).to.equal(200);
+          fetch = egraphqlFetch(`http://127.0.0.1:${port}/graphql`,
+            keyID, privateKey, cipherAlgorithm);
         });
 
         it('accept regular requests.', async () => {
-          const response = await req(JSON.stringify({
-            data: 'test'
-          }));
-
-          expect(compressedData(response.text)).to.deep
-            .equal({
-              status: 400,
-              payload: {
-                errors: [
-                  { message: 'Payload missing' }
-                ]
-              }
-            });
-          expect(response.status).to.equal(200);
+          const result = await fetch('{ test }');
+          expect(result).to.deep.equal({
+            data: {
+              test: 'Hello World'
+            }
+          });
         });
 
         it('should properly pass through the encrypted errors.', async () => {
-          const response = await req(JSON.stringify({
-            payload: {}
+          const result = await fetch('{');
+
+          expect(result).to.deep.equal({
+            errors: [ {
+              locations: [
+                {
+                  column: 2,
+                  line: 1
+                }
+              ],
+              message: 'Syntax Error GraphQL request (1:2)' +
+                ' Expected Name, found <EOF>\n\n1: {\n    ^\n'
+            } ]
+          });
+        });
+
+        after(async () => {
+          await promiseTo(listener.close.bind(listener));
+        });
+      });
+
+      describe('Properly encrypted requests (with session!)', () => {
+        const cipherAlgorithm = 'aes-256-ecb';
+        const keys = {
+          admin: {
+            privateKey: 'password'
+          }
+        };
+
+        let app;
+        let port;
+        let fetch;
+        let listener;
+        let sessionSchema;
+        let privateKeys;
+        let sessionKeyCount;
+
+        beforeEach(() => {
+          sessionKeyCount = 0;
+          privateKeys = [];
+        });
+
+        before(async () => {
+          sessionSchema = createSessionSchema(keyID => {
+            const original = keys[keyID];
+            if (!original) {
+              return {};
+            }
+            const sessionKeyID = `${keyID}_${sessionKeyCount + 1}`;
+            const sessionSecret = `secrect_${Date.now()}`;
+            return eGraphqlCreateSecret(original.privateKey, sessionSecret)
+              .then(privateKey => {
+                keys[sessionKeyID] = {
+                  privateKey,
+                  session: true,
+                  originalKey: keyID
+                };
+                return {
+                  keyID: sessionKeyID,
+                  secret: sessionSecret
+                };
+              });
+          });
+          const endPoint = graphqlHTTP({
+            schema: sessionSchema,
+            getPrivateKey: resultKeyID => {
+              privateKeys.push(resultKeyID);
+              return Promise.resolve(keys[resultKeyID].privateKey);
+            }
+          });
+          app = server();
+          app.use('/graphql', endPoint);
+          port = await (new Promise(resolve => {
+            listener = app.listen(() => {
+              if (listener.address) {
+                return resolve(listener.address().port);
+              }
+              return resolve(app.address().port);
+            });
           }));
 
-          expect(compressedData(response.text)).to.deep
-            .equal({
-              status: 400,
-              payload: {
-                errors: [
-                  { message: 'Must provide query string.' }
-                ]
-              }
-            });
-          expect(response.status).to.equal(200);
+          fetch = egraphqlFetch(`http://127.0.0.1:${port}/graphql`,
+            'admin', keys.admin.privateKey, cipherAlgorithm);
+        });
+
+        it('accept regular requests.', async () => {
+          const result = await fetch('{ test }');
+          expect(result).to.deep.equal({
+            data: {
+              test: 'Hello World'
+            }
+          });
+          expect(privateKeys).to.deep.equal([
+            'admin', 'admin_1'
+          ]);
+        });
+
+        it('should properly pass through the encrypted errors.', async () => {
+          const result = await fetch('{');
+
+          expect(result).to.deep.equal({
+            errors: [ {
+              locations: [
+                {
+                  column: 2,
+                  line: 1
+                }
+              ],
+              message: 'Syntax Error GraphQL request (1:2)' +
+                ' Expected Name, found <EOF>\n\n1: {\n    ^\n'
+            } ]
+          });
+        });
+
+        after(async () => {
+          await promiseTo(listener.close.bind(listener));
         });
       });
     });

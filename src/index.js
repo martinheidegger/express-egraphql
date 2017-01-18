@@ -12,7 +12,7 @@
 
 import httpError from 'http-errors';
 import url from 'url';
-import { createCipher, createDecipher } from 'crypto';
+import { createCipher, createDecipher, pbkdf2 } from 'crypto';
 import toBuffer from './toBuffer.js';
 
 import {
@@ -33,6 +33,11 @@ import {
   exec
 } from './handler';
 
+import {
+  GraphQLObjectType,
+  GraphQLString
+} from 'graphql';
+
 import type {
   DocumentNode,
   GraphQLError,
@@ -40,12 +45,20 @@ import type {
 } from 'graphql';
 import type { Response } from 'express';
 
+export type eGraphQLRequestInfo = {
+  keyID: string,
+  privateKey: string,
+  cipher: (input: Payload) => string,
+  decipher: (encrypted: string) => any
+};
+
 export type Request = {
   method: string;
   url: string;
   body: mixed;
   headers: {[header: string]: mixed};
   pipe<T>(stream: T): T;
+  eGraphQL?: ?eGraphQLRequestInfo;
 };
 
 /**
@@ -259,14 +272,16 @@ function graphqlHTTP(options: Options): Middleware {
     .then(result => handleResult(formatErrorFn, response, result))
     .then(result => {
       // If allowed to show GraphiQL, present it instead of JSON.
-      if (response.cipher) {
+      const eGraphQL = request.eGraphQL;
+      if (eGraphQL !== null && eGraphQL !== undefined) {
         const data = {
           t: Date.now(),
           status: response.statusCode,
           payload: result
         };
         response.statusCode = 200;
-        sendResponse(response, response.cipher(data));
+        response.setHeader('Content-Type', 'application/egraphql');
+        sendResponse(response, Buffer.from(eGraphQL.cipher(data)));
       } else if (showGraphiQL) {
         const payload = renderGraphiQL({
           query, variables,
@@ -326,7 +341,7 @@ function getGraphQLParams(request: Request, response: Response,
       cipherAlgorithm, keyID).then(credentials => {
         return parseBody(request, 'utf-8', credentials.decipher)
           .then(data => {
-            response.cipher = credentials.cipher;
+            request.eGraphQL = credentials;
             if (!data.payload) {
               return Promise.reject(httpError(400, 'Payload missing'));
             }
@@ -336,7 +351,7 @@ function getGraphQLParams(request: Request, response: Response,
             if (e.statusCode === 401) {
               return Promise.reject(e);
             }
-            response.cipher = credentials.cipher;
+            request.eGraphQL = credentials;
             return Promise.reject(e);
           });
       });
@@ -344,17 +359,12 @@ function getGraphQLParams(request: Request, response: Response,
   return getRegularGraphQLParams(request);
 }
 
-type CryptoHandler = {
-  cipher: (input: Payload) => string,
-  decipher: (encrypted: string) => any
-};
-
 function isEncryptedRequest(
   getPrivateKey: PrivateKeyFetch,
   acceptedCipherAlgorithms: string[],
   cipherAlgorithm: string,
   keyID: string
-): Promise<CryptoHandler> {
+): Promise<eGraphQLRequestInfo> {
   if (!keyID) {
     return Promise.reject(httpError(400,
       'The header "x-cipher" requires the use of "x-key-id".'));
@@ -381,6 +391,8 @@ function isEncryptedRequest(
         return delayedReject();
       }
       return {
+        keyID,
+        privateKey,
         cipher(data) {
           const c = createCipher(cipherAlgorithm, privateKey);
           return Buffer.concat([
@@ -428,13 +440,41 @@ function getRegularGraphQLParams(request: Request): Promise<GraphQLParams> {
   });
 }
 
+type SessionCreator = (keyID: string) => Promise<string>;
+
+module.exports.eGraphqlCreateSecret = (
+  privateKey: string, secret: string
+): Promise<Buffer> => new Promise((resolve, reject) => {
+  return pbkdf2(privateKey, toBuffer(secret), 100000, 256, 'sha512',
+    (err, newPrivateKey) =>
+      err ? reject(err) : resolve(newPrivateKey)
+  );
+});
+module.exports.eGraphqlSessionMutation = (
+  createSession: SessionCreator
+) => ({
+  type: new GraphQLObjectType({
+    name: 'EncryptedGraphqlSession',
+    fields: {
+      keyID: {
+        type: GraphQLString
+      },
+      secret: {
+        type: GraphQLString
+      },
+    }
+  }),
+  resolve: (source, args, context) =>
+    createSession(context.eGraphQL.keyID)
+});
+
 module.exports.parseGraphQLParams = parseGraphQLParams;
 
 /**
  * Helper function for sending the response data. Use response.send it method
  * exists (express), otherwise use response.end (connect).
  */
-function sendResponse(response: Response, data: string): void {
+function sendResponse(response: Response, data: string | Buffer): void {
   if (typeof response.send === 'function') {
     response.send(data);
   } else {
