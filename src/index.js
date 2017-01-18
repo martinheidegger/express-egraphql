@@ -281,7 +281,7 @@ function graphqlHTTP(options: Options): Middleware {
         };
         response.statusCode = 200;
         response.setHeader('Content-Type', 'application/egraphql');
-        sendResponse(response, Buffer.from(eGraphQL.cipher(data)));
+        sendResponse(response, toBuffer(eGraphQL.cipher(data)));
       } else if (showGraphiQL) {
         const payload = renderGraphiQL({
           query, variables,
